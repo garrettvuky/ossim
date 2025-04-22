@@ -84,6 +84,7 @@ const OSComponent = () => {
   const [devices, setDevices] = useState({ keyboard: null, printer: null });
   const schedulerIndex = useRef(0);
   const [modal, setModal] = useState({ type: null, isOpen: false });
+  const [log, setLog] = useState('...');
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -105,11 +106,16 @@ const OSComponent = () => {
 
   const createProcess = () => {
     const newProc = generateProcess();
+    setLog(`${log}\nCreating process ${newProc?.pid}`)
     setProcesses(prev => [...prev, newProc]);
     allocateMemory(newProc.pid);
   };
 
   const terminateProcess = (pid) => {
+    setLog(`${log}\nTerminating process ${pid}`)
+    if (Object.values(devices).includes(pid)) {
+      setDevices({ ...devices, keyboard: null }) // todo: set specific
+    }
     setProcesses(prev => prev.filter(p => p.pid !== pid));
     setMemory(mem => mem.map(m => (m === pid ? null : m)));
   };
@@ -137,6 +143,7 @@ const OSComponent = () => {
   };
 
   const addFileOrFolder = (path, item) => {
+    setLog(`${log}\nAdding ${item.name} at path ${path}`)
     setFileSystem(prev => {
       const newFS = JSON.parse(JSON.stringify(prev));
       traverseAndAct(newFS, path.split('/').filter(Boolean), (node) => {
@@ -148,6 +155,7 @@ const OSComponent = () => {
   };
 
   const renameItem = (path, newName) => {
+    setLog(`${log}\nRenaming ${path} to ${newName}`)
     setFileSystem(prev => {
       const newFS = JSON.parse(JSON.stringify(prev));
       const segments = path.split('/').filter(Boolean);
@@ -161,6 +169,7 @@ const OSComponent = () => {
   };
 
   const deleteItem = (path) => {
+    setLog(`${log}\nDeleting item at ${path}`)
     setFileSystem(prev => {
       const newFS = JSON.parse(JSON.stringify(prev));
       const segments = path.split('/').filter(Boolean);
@@ -173,6 +182,7 @@ const OSComponent = () => {
   };
 
   const moveItem = (sourcePath, targetPath) => {
+    setLog(`${log}\nMoving ${sourcePath} to ${targetPath}`)
     let movingItem = null;
     const updatedFS = JSON.parse(JSON.stringify(fileSystem));
     const srcSegments = sourcePath.split('/').filter(Boolean);
@@ -197,9 +207,11 @@ const OSComponent = () => {
   const renderFileTree = (node, path = '', depth = 0) => (
     <div key={path} className="ml-4">
       <div
-        style={{ marginLeft: depth * 16 }}
+        style={{ marginLeft: depth * 16, cursor: 'pointer' }}
         className={`cursor-pointer ${selectedPath === path ? 'text-indigo-600 font-semibold' : ''}`}
-        onClick={() => setSelectedPath(path)}
+        onClick={(e) => {
+          setSelectedPath(path)
+        }}
       >
         {node.type === 'folder' ? '📁' : '📄'} {node.name}
       </div>
@@ -210,6 +222,7 @@ const OSComponent = () => {
   );
 
   const requestDevice = (pid, device) => {
+    setLog(`${log}\nProcess ${pid} requested ${device}`)
     setDevices(prev => {
       if (prev[device] === null) return { ...prev, [device]: pid };
       return prev;
@@ -217,6 +230,7 @@ const OSComponent = () => {
   };
 
   const releaseDevice = (device) => {
+    setLog(`${log}\nReleased ${device}`)
     setDevices(prev => ({ ...prev, [device]: null }));
   };
 
@@ -310,6 +324,17 @@ const OSComponent = () => {
               </li>
             ))}
           </ul>
+        </CardContent>
+      </Card>
+
+      <Card style={{backgroundColor: 'grey', borderWidth: '1px', borderColor: 'black', height: '30vh', width: '50%', overflow: 'scroll'}}>
+        <CardContent>
+          <h2 className="text-xl font-semibold mb-3">Log</h2>
+          <div className="bg-gray-200 h-[30vh] w-full overflow-scroll p-2 text-sm">
+            {log.split('\n').map((line, index) => (
+              <div key={index}>{line}</div>
+            ))}
+          </div>
         </CardContent>
       </Card>
     </div>
