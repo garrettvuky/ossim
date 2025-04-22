@@ -294,7 +294,7 @@ const OSComponent = () => {
 
       <Card>
         <CardContent>
-          <h2 className="text-xl font-semibold mb-3">Memory (Paging)</h2>
+          <h2 className="text-xl font-semibold mb-3">Memory</h2>
           <div className="grid grid-cols-5 gap-3">
             {memory.map((slot, i) => (
               <div key={i} className="p-2 border rounded text-center bg-white text-sm">
