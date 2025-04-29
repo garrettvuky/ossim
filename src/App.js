@@ -1,7 +1,14 @@
-import React, { useState, useEffect, useRef } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { v4 as uuidv4 } from "uuid";
+// Updated App.js with LRU Paging, Better Log, and Full Documentation
 
+import React, { useState, useEffect, useRef } from "react";
+import { v4 as uuidv4 } from "uuid";
+import { Card, Button, Modal, ProcessList, MemoryDisplay, FileSystemTree, DeviceList, LogViewer } from "./index";
+
+/**
+ * Generates a new simulated process object.
+ * @param {number} priority Optional priority value (default random).
+ * @returns {Object} New process.
+ */
 const generateProcess = (priority = Math.floor(Math.random() * 10)) => ({
   pid: uuidv4(),
   state: "Ready",
@@ -14,78 +21,27 @@ const generateProcess = (priority = Math.floor(Math.random() * 10)) => ({
   creationTime: Date.now(),
 });
 
-const Card = ({ children, className = "" }) => (
-  <div className={`rounded-2xl border border-gray-300 p-5 shadow-md bg-white ${className}`}>
-    {children}
-  </div>
-);
-
+/** Simple CardContent wrapper */
 const CardContent = ({ children }) => <div>{children}</div>;
 
-const Button = ({ children, onClick, variant = "default", size = "md" }) => {
-  const styles = {
-    default: "bg-indigo-600 text-white hover:bg-indigo-700",
-    destructive: "bg-red-500 text-white hover:bg-red-600",
-  };
-  const sizes = {
-    sm: "px-3 py-1 text-sm",
-    md: "px-4 py-2",
-  };
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-full ${styles[variant]} ${sizes[size]} font-medium transition duration-200`}
-    >
-      {children}
-    </button>
-  );
-};
-
-const Modal = ({ title, placeholder, isOpen, onClose, onSubmit }) => {
-  const [inputValue, setInputValue] = useState("");
-
-  useEffect(() => {
-    if (isOpen) setInputValue("");
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-xl shadow-xl w-full max-w-sm">
-        <h3 className="text-lg font-bold mb-2">{title}</h3>
-        <input
-          type="text"
-          value={inputValue}
-          onChange={e => setInputValue(e.target.value)}
-          placeholder={placeholder}
-          className="w-full border rounded p-2 mb-4"
-        />
-        <div className="flex justify-end gap-2">
-          <Button onClick={onClose}>Cancel</Button>
-          <Button onClick={() => {
-            onSubmit(inputValue);
-            onClose();
-          }}>Submit</Button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-
-
-
+/**
+ * Main OSComponent - simulates an Operating System scheduler, memory, filesystem, devices, and logs.
+ */
 const OSComponent = () => {
   const [processes, setProcesses] = useState([]);
-  const [memory, setMemory] = useState(Array(10).fill(null));
+  const [memory, setMemory] = useState(Array(16).fill(null)); // Now 16 slots
+  const [lastAccess, setLastAccess] = useState({}); // Track last access timestamps per memory slot
   const [fileSystem, setFileSystem] = useState({ name: '/', type: 'folder', children: [] });
   const [selectedPath, setSelectedPath] = useState('/');
   const [devices, setDevices] = useState({ keyboard: null, printer: null });
   const schedulerIndex = useRef(0);
   const [modal, setModal] = useState({ type: null, isOpen: false });
   const [log, setLog] = useState('...');
+  const logEndRef = useRef(null);
 
+  /**
+   * Scheduler effect - cycles processes every 2s.
+   */
   useEffect(() => {
     const interval = setInterval(() => {
       setProcesses(prev => {
@@ -97,55 +53,69 @@ const OSComponent = () => {
           const nextProc = readyProcs.reduce((a, b) => a.creationTime < b.creationTime ? a : b);
           const idx = newProcs.findIndex(p => p.pid === nextProc.pid);
           newProcs[idx].state = "Running";
+
+          // Update memory lastAccess when scheduled
+          setLastAccess(prev => {
+            const updated = { ...prev };
+            Object.entries(memory).forEach(([i, val]) => {
+              if (val === nextProc.pid) updated[i] = Date.now();
+            });
+            return updated;
+          });
         }
         return newProcs;
       });
     }, 2000);
     return () => clearInterval(interval);
-  }, []);
+  }, [memory]);
+
+  /** Scroll to bottom when log updates */
+  useEffect(() => {
+    if (logEndRef.current) logEndRef.current.scrollIntoView({ behavior: 'smooth' });
+  }, [log]);
 
   const createProcess = () => {
     const newProc = generateProcess();
-    setLog(`${log}\nCreating process ${newProc?.pid}`)
+    setLog(prev => `${prev}\nCreating process ${newProc?.pid}`);
     setProcesses(prev => [...prev, newProc]);
     allocateMemory(newProc.pid);
   };
 
   const terminateProcess = (pid) => {
-    setLog(`${log}\nTerminating process ${pid}`)
-    if (Object.values(devices).includes(pid)) {
-      setDevices({ ...devices, keyboard: null }) // todo: set specific
-    }
+    setLog(prev => `${prev}\nTerminating process ${pid}`);
     setProcesses(prev => prev.filter(p => p.pid !== pid));
     setMemory(mem => mem.map(m => (m === pid ? null : m)));
   };
 
-  const handleRename = () => setModal({ type: "rename", isOpen: true });
-  const handleMove = () => setModal({ type: "move", isOpen: true });
-
   const allocateMemory = (pid) => {
     setMemory(prev => {
       const newMemory = [...prev];
-      for (let i = 0; i < newMemory.length; i++) {
-        if (newMemory[i] === null) {
-          newMemory[i] = pid;
-          break;
-        }
+      let idx = newMemory.findIndex(m => m === null);
+      if (idx === -1) {
+        // Memory full - apply LRU replacement
+        const oldestIdx = Object.keys(lastAccess).sort((a, b) => lastAccess[a] - lastAccess[b])[0];
+        idx = parseInt(oldestIdx);
+        newMemory[idx] = pid;
+      } else {
+        newMemory[idx] = pid;
       }
+      setLastAccess(prev => ({ ...prev, [idx]: Date.now() }));
       return newMemory;
     });
   };
 
+  /** Recursively traverse FS tree and apply action */
   const traverseAndAct = (node, segments, action) => {
     if (segments.length === 0) return action(node);
     const next = node.children?.find(c => c.name === segments[0]);
     if (next) traverseAndAct(next, segments.slice(1), action);
   };
 
+  /** Add file or folder into the filesystem */
   const addFileOrFolder = (path, item) => {
-    setLog(`${log}\nAdding ${item.name} at path ${path}`)
+    setLog(prev => `${prev}\nAdding ${item.name} at path ${path}`);
     setFileSystem(prev => {
-      const newFS = JSON.parse(JSON.stringify(prev));
+      const newFS = structuredClone(prev);
       traverseAndAct(newFS, path.split('/').filter(Boolean), (node) => {
         if (!node.children) node.children = [];
         node.children.push(item);
@@ -154,10 +124,11 @@ const OSComponent = () => {
     });
   };
 
+  /** Rename a file or folder */
   const renameItem = (path, newName) => {
-    setLog(`${log}\nRenaming ${path} to ${newName}`)
+    setLog(prev => `${prev}\nRenaming ${path} to ${newName}`);
     setFileSystem(prev => {
-      const newFS = JSON.parse(JSON.stringify(prev));
+      const newFS = structuredClone(prev);
       const segments = path.split('/').filter(Boolean);
       const itemName = segments.pop();
       traverseAndAct(newFS, segments, (node) => {
@@ -168,10 +139,25 @@ const OSComponent = () => {
     });
   };
 
+    /**
+   * Handles opening the rename modal.
+   */
+    const handleRename = () => {
+      setModal({ type: "rename", isOpen: true });
+    };
+  
+    /**
+     * Handles opening the move modal.
+     */
+    const handleMove = () => {
+      setModal({ type: "move", isOpen: true });
+    };
+
+  /** Delete a file or folder */
   const deleteItem = (path) => {
-    setLog(`${log}\nDeleting item at ${path}`)
+    setLog(prev => `${prev}\nDeleting item at ${path}`);
     setFileSystem(prev => {
-      const newFS = JSON.parse(JSON.stringify(prev));
+      const newFS = structuredClone(prev);
       const segments = path.split('/').filter(Boolean);
       const itemName = segments.pop();
       traverseAndAct(newFS, segments, (node) => {
@@ -181,10 +167,11 @@ const OSComponent = () => {
     });
   };
 
+  /** Move a file or folder */
   const moveItem = (sourcePath, targetPath) => {
-    setLog(`${log}\nMoving ${sourcePath} to ${targetPath}`)
+    setLog(prev => `${prev}\nMoving ${sourcePath} to ${targetPath}`);
     let movingItem = null;
-    const updatedFS = JSON.parse(JSON.stringify(fileSystem));
+    const updatedFS = structuredClone(fileSystem);
     const srcSegments = sourcePath.split('/').filter(Boolean);
     const tgtSegments = targetPath.split('/').filter(Boolean);
     const itemName = srcSegments.pop();
@@ -204,39 +191,23 @@ const OSComponent = () => {
     setFileSystem(updatedFS);
   };
 
-  const renderFileTree = (node, path = '', depth = 0) => (
-    <div key={path} className="ml-4">
-      <div
-        style={{ marginLeft: depth * 16, cursor: 'pointer' }}
-        className={`cursor-pointer ${selectedPath === path ? 'text-indigo-600 font-semibold' : ''}`}
-        onClick={(e) => {
-          setSelectedPath(path)
-        }}
-      >
-        {node.type === 'folder' ? '📁' : '📄'} {node.name}
-      </div>
-      {node.children && node.children.map(child =>
-        renderFileTree(child, `${path}/${child.name}`, depth + 1)
-      )}
-    </div>
-  );
-
+  /** Request an I/O device */
   const requestDevice = (pid, device) => {
-    setLog(`${log}\nProcess ${pid} requested ${device}`)
+    setLog(prev => `${prev}\nProcess ${pid} requested ${device}`);
     setDevices(prev => {
       if (prev[device] === null) return { ...prev, [device]: pid };
       return prev;
     });
   };
 
+  /** Release an I/O device */
   const releaseDevice = (device) => {
-    setLog(`${log}\nReleased ${device}`)
+    setLog(prev => `${prev}\nReleased ${device}`);
     setDevices(prev => ({ ...prev, [device]: null }));
   };
 
   return (
-    
-    <div className="grid grid-cols-2 gap-4 p-6 bg-gray-50 min-h-screen">
+    <div className="grid grid-cols-2 gap-4 p-6 bg-gray-50 min-h-screen overflow-hidden">
       <Modal
         title={modal.type === "rename" ? "Rename Item" : "Move Item"}
         placeholder={modal.type === "rename" ? "Enter new name" : "Enter target path (e.g., /folder)"}
@@ -247,6 +218,7 @@ const OSComponent = () => {
           else if (modal.type === "move") moveItem(selectedPath, value);
         }}
       />
+
       <Card className="col-span-2">
         <CardContent>
           <div className="flex flex-wrap gap-3 justify-center">
@@ -264,76 +236,21 @@ const OSComponent = () => {
 
       <Card>
         <CardContent>
-          <h2 className="text-xl font-semibold mb-3">Processes</h2>
-          <AnimatePresence>
-            {processes.map(proc => (
-              <motion.div
-                key={proc.pid}
-                className="p-3 border rounded-xl mb-3 bg-indigo-50 shadow-sm"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                transition={{ duration: 0.3 }}
-              >
-                <div className="flex flex-col">
-                  <div className="font-medium">
-                    PID: {proc.pid.slice(0, 6)} | State: {proc.state} | Mem: {proc.memory}MB | Prio: {proc.priority}
-                  </div>
-                  <div className="text-sm text-gray-600">
-                    PC: {proc.pc} | Registers: {JSON.stringify(proc.registers)}
-                  </div>
-                  <div className="flex justify-end mt-2">
-                    <Button size="sm" variant="destructive" onClick={() => terminateProcess(proc.pid)}>Kill</Button>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent>
-          <h2 className="text-xl font-semibold mb-3">Memory</h2>
-          <div className="grid grid-cols-5 gap-3">
-            {memory.map((slot, i) => (
-              <div key={i} className="p-2 border rounded text-center bg-white text-sm">
-                {slot ? slot.slice(0, 4) : "Empty"}
-              </div>
-            ))}
+          <div className="h-[30vh] overflow-auto">
+            <ProcessList processes={processes} terminateProcess={terminateProcess} />
           </div>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent>
-          <h2 className="text-xl font-semibold mb-3">File System</h2>
-          <div className="text-sm text-gray-700">
-            {renderFileTree(fileSystem, '')}
-          </div>
-        </CardContent>
-      </Card>
+      <Card><CardContent><MemoryDisplay memory={memory} /></CardContent></Card>
+      <Card><CardContent><FileSystemTree fileSystem={fileSystem} selectedPath={selectedPath} setSelectedPath={setSelectedPath} /></CardContent></Card>
+      <Card><CardContent><DeviceList devices={devices} /></CardContent></Card>
 
-      <Card>
+      <Card className="bg-gray-200 border border-black h-[30vh] w-full">
         <CardContent>
-          <h2 className="text-xl font-semibold mb-3">I/O Devices</h2>
-          <ul className="text-sm">
-            {Object.entries(devices).map(([device, user]) => (
-              <li key={device}>
-                {device.toUpperCase()}: {user ? `Used by ${user.slice(0, 6)}` : "Available"}
-              </li>
-            ))}
-          </ul>
-        </CardContent>
-      </Card>
-
-      <Card style={{backgroundColor: 'grey', borderWidth: '1px', borderColor: 'black', height: '30vh', width: '50%', overflow: 'scroll'}}>
-        <CardContent>
-          <h2 className="text-xl font-semibold mb-3">Log</h2>
-          <div className="bg-gray-200 h-[30vh] w-full overflow-scroll p-2 text-sm">
-            {log.split('\n').map((line, index) => (
-              <div key={index}>{line}</div>
-            ))}
+          <div className="h-full overflow-auto whitespace-pre-wrap break-words">
+            <LogViewer log={log} />
+            <div ref={logEndRef} />
           </div>
         </CardContent>
       </Card>
